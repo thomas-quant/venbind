@@ -222,6 +222,14 @@ Setting `wFlags` bit 2 (available from Windows 10 version 1607) prevents this st
 making the call safe to use from a low-level keyboard hook without corrupting the user's IME/dead-key
 state.
 
+> **Note — does not apply to libuiohook's `keycode_to_unicode`.** libuiohook does **not** call
+> `ToUnicode`/`ToUnicodeEx`; its `keycode_to_unicode` (`vendor/src/windows/input_helper.c`) walks the
+> active layout DLL's `VK_TO_WCHARS` tables directly and keeps its **own** `static WCHAR deadChar`.
+> The `wFlags` bit-2 mitigation is a parameter of the Win32 `ToUnicode` API and has no effect on that
+> path. It would only be relevant if venbind called `ToUnicode`/`ToUnicodeEx` itself. The dead-key
+> state libuiohook keeps is still mutated on every call (including the extra calls venbind makes from
+> `dispatch_proc`) — that is a separate concern, not something bit 2 can fix.
+
 ### Surrogate pairs and ligatures
 
 Some layouts may produce multiple UTF-16 code units or surrogate pairs from a single key press [TU].
@@ -320,10 +328,14 @@ versions since Windows 2000. This is the approach adopted in the fix.
 - **Scan-code path (`GetKeyNameTextW`):** must be replaced by a VK-code-to-token table for all
   non-printable keys. The `rawcode` field from libuiohook carries the VK code and is the correct
   input to that table.
-- **Printable key path (`keycode_to_unicode` → `ToUnicode`):** produces the correct Unicode
+- **Printable key path (libuiohook's `keycode_to_unicode`):** produces the correct Unicode
   character for the physical key under the current layout, which is the right behavior for
-  character-key matching. However, callers should set `wFlags` bit 2 (no-state-mutation) when
-  invoked from a hook context to avoid corrupting IME/dead-key state.
+  character-key matching. Note this helper does **not** call `ToUnicode`/`ToUnicodeEx` — it reads the
+  layout DLL's `VK_TO_WCHARS` tables directly and keeps its own `static deadChar`. The `ToUnicode`
+  `wFlags` bit-2 (no-state-mutation) flag therefore does **not** apply here; it would only matter if
+  venbind called `ToUnicode` itself. Avoiding dead-key/IME corruption on this path instead requires
+  not making redundant `keycode_to_unicode` calls (it mutates that shared `deadChar`), which is a
+  larger refactor tracked separately.
 - **Extended-key distinction:** if venbind needs to distinguish gray-cluster Insert/Home/End/PageUp/
   PageDown/arrows from their NumLock-off numpad counterparts, it must check bit 24 of the libuiohook
   event's `lParam`-equivalent (or the `KF_EXTENDED` flag) in addition to the VK code. For
