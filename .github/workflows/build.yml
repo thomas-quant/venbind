@@ -1,44 +1,58 @@
 name: build
 
-# Fork build-only workflow (thomas-quant/venbind): compiles the crate for the
-# targets GoofCord consumes and uploads the prebuilt .node as an artifact.
-# Mirrors the build job of upstream publish.yml but drops the npm-publish job and
-# the aarch64 targets. Triggers on every push and manually via the Actions tab.
+# Fork build-only workflow (thomas-quant/venbind): compiles the crate natively on
+# each target's own runner and uploads the prebuilt .node that GoofCord consumes.
+# Deliberately does NOT use the upstream devenv/nix recipe (it has bit-rotted —
+# `devenv shell` bootstrap fails on current devenv). Standard napi-rs setup instead.
 on:
   push:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build - ${{ matrix.platform.os }} ${{ matrix.arch }}
+    name: Build - ${{ matrix.settings.os }}
+    runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - os: linux
-            target_suffix: -unknown-linux-gnu
-          - os: windows
-            target_suffix: -pc-windows-msvc
-        arch: [x86_64]
-    runs-on: ubuntu-latest
+        settings:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            os: linux
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            os: windows
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: cachix/install-nix-action@v26
-      - uses: cachix/cachix-action@v14
+      - uses: actions/setup-node@v4
         with:
-          name: devenv
-      - name: Install devenv.sh
-        run: nix profile install nixpkgs#devenv
-      - name: Build
-        shell: devenv shell bash -- -e {0}
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+      # uiohook-sys builds libuiohook via cmake and runs bindgen (needs libclang).
+      - name: Install build deps (Linux)
+        if: matrix.settings.os == 'linux'
         run: |
-          npx --yes --package=@napi-rs/cli@canary -- napi build --release --cross-compile --target ${{ matrix.arch }}${{ matrix.platform.target_suffix }}
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev pkg-config \
+            libx11-dev libxtst-dev libxt-dev libxinerama-dev libx11-xcb-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev libdbus-1-dev
+      - name: Install build deps (Windows)
+        if: matrix.settings.os == 'windows'
+        run: choco install -y cmake llvm
+      - name: Build
+        env:
+          LIBCLANG_PATH: ${{ matrix.settings.os == 'windows' && 'C:\Program Files\LLVM\bin' || '' }}
+        run: npx --yes @napi-rs/cli@2 build --release --target ${{ matrix.settings.target }}
+      - name: Stage artifact
+        shell: bash
+        run: |
           mkdir -p dist
-          cp index.node ./dist/venbind-${{ matrix.platform.os }}-${{ matrix.arch }}.node
-      - name: Upload
-        uses: actions/upload-artifact@v4
+          cp index.node "dist/venbind-${{ matrix.settings.os }}-x86_64.node"
+      - uses: actions/upload-artifact@v4
         with:
-          name: venbind-${{ matrix.platform.os }}-${{ matrix.arch }}
-          path: ./dist/venbind-${{ matrix.platform.os }}-${{ matrix.arch }}.node
+          name: venbind-${{ matrix.settings.os }}-x86_64
+          path: dist/venbind-${{ matrix.settings.os }}-x86_64.node
