@@ -10,7 +10,7 @@ use uiohook_sys::{
 };
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyNameTextW, VIRTUAL_KEY, VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL,
+    VIRTUAL_KEY, VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL,
     VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14,
     VK_F15, VK_F16, VK_F17, VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3,
     VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU,
@@ -61,6 +61,14 @@ pub extern "C" fn dispatch_proc(event_ref: *mut _uiohook_event) {
             // Modifier keys are tracked via `event.mask`, never as a key token.
             VK_SHIFT | VK_MENU | VK_CONTROL | VK_LWIN | VK_RWIN | VK_LSHIFT | VK_RSHIFT
             | VK_RCONTROL | VK_LCONTROL | VK_LMENU | VK_RMENU => None,
+            // Numpad Enter shares `VK_RETURN` with the main Enter key; the only
+            // distinguisher is libuiohook's scancode field, which carries the
+            // extended bit as `VC_KP_ENTER` (0x0E1C) vs `VC_ENTER` (0x001C). Check
+            // it first so "numpadenter" registrations match, keeping lock-step with
+            // the Linux backend (which emits NUMPAD_ENTER for `KP_Enter`).
+            VK_RETURN if u32::from(scancode) == uiohook_sys::VC_KP_ENTER => {
+                Some(crate::structs::tokens::NUMPAD_ENTER.to_owned())
+            }
             _ => {
                 // Named / non-printable keys -> a canonical, locale-independent
                 // token (see `crate::structs::tokens`), checked *before* the
@@ -85,12 +93,16 @@ pub extern "C" fn dispatch_proc(event_ref: *mut _uiohook_event) {
                     if !key.is_empty() {
                         Some(key.to_string_lossy().to_lowercase())
                     } else {
-                        // Best-effort fallback for keys we don't map explicitly.
-                        // Lowercased so it at least matches a (lowercased)
-                        // registration on the same machine; `GetKeyNameTextW` is
-                        // OS-locale-dependent so it is NOT guaranteed to agree
-                        // across platforms (hence the explicit map above).
-                        Some(get_key_name(scancode).to_lowercase())
+                        // Unmapped, non-printable key (media / browser / IME keys,
+                        // etc.): ignore it rather than guess a name. The old
+                        // `GetKeyNameTextW((scancode as i32) << 16)` fallback fed a
+                        // malformed lParam -- libuiohook's scancode carries an
+                        // `0xE0` high-byte prefix that lands outside the scancode
+                        // (bits 16-23) and extended-flag (bit 24) fields -- so e.g.
+                        // Volume Up resolved to "b" and mis-fired any keybind bound
+                        // to that letter. `None` is strictly safer: these keys
+                        // could not be reliably bound anyway.
+                        None
                     }
                 }
             }
@@ -121,17 +133,17 @@ pub extern "C" fn dispatch_proc(event_ref: *mut _uiohook_event) {
         let mut curr_active_keybinds = CURR_ACTIVE_KEYBINDS.lock().unwrap();
         let pressed_keybinds = active.difference(&curr_active_keybinds);
         let released_keybinds = curr_active_keybinds.difference(&active);
-        for pressed in pressed_keybinds {
-            TX.get()
-                .unwrap()
-                .send(KeybindTrigger::Pressed(pressed.clone()))
-                .unwrap();
-        }
-        for released in released_keybinds {
-            TX.get()
-                .unwrap()
-                .send(KeybindTrigger::Released(released.clone()))
-                .unwrap();
+        // `dispatch_proc` is `extern "C"` and runs on libuiohook's hook thread, so
+        // a panic here would unwind across the FFI boundary (undefined behaviour).
+        // If the consumer has dropped the receiver the send simply fails -- ignore
+        // it rather than `.unwrap()`-ing and aborting the host process.
+        if let Some(tx) = TX.get() {
+            for pressed in pressed_keybinds {
+                let _ = tx.send(KeybindTrigger::Pressed(pressed.clone()));
+            }
+            for released in released_keybinds {
+                let _ = tx.send(KeybindTrigger::Released(released.clone()));
+            }
         }
         curr_active_keybinds.clear();
         curr_active_keybinds.extend(active);
@@ -155,14 +167,6 @@ pub(crate) fn set_keybinds_internal(keybinds: Vec<KeybindInfo>) -> Result<()> {
 pub(crate) fn get_current_shortcut_internal() -> Result<String> {
     let down = CURR_DOWN.lock().unwrap();
     Ok(down.to_string())
-}
-
-fn get_key_name(scancode: u16) -> String {
-    let mut buf: Vec<u16> = vec![0; 16];
-    let str_count = unsafe { GetKeyNameTextW((scancode as i32) << 16, &mut buf) };
-    buf.truncate(str_count.try_into().unwrap());
-    let key = OsString::from_wide(&buf);
-    key.to_string_lossy().to_string()
 }
 
 /// Maps a Windows virtual-key code for a named / non-printable key to venbind's
@@ -234,7 +238,9 @@ fn vk_to_token(vk: VIRTUAL_KEY) -> Option<&'static str> {
         VK_MULTIPLY => NUMPAD_MULTIPLY,
         VK_DIVIDE => NUMPAD_DIVIDE,
         VK_DECIMAL => NUMPAD_DECIMAL,
-        // Numpad Enter shares VK_RETURN on Windows, so it resolves to ENTER.
+        // Numpad Enter also reports VK_RETURN here; the caller splits it from the
+        // main Enter via the scancode (VC_KP_ENTER) before reaching this map, so
+        // VK_RETURN resolves to ENTER.
         _ => return None,
     })
 }
