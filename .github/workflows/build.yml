@@ -1,0 +1,44 @@
+name: build
+
+# Fork build-only workflow (thomas-quant/venbind): compiles the crate for the
+# targets GoofCord consumes and uploads the prebuilt .node as an artifact.
+# Mirrors the build job of upstream publish.yml but drops the npm-publish job and
+# the aarch64 targets. Triggers on every push and manually via the Actions tab.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build - ${{ matrix.platform.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: linux
+            target_suffix: -unknown-linux-gnu
+          - os: windows
+            target_suffix: -pc-windows-msvc
+        arch: [x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: cachix/install-nix-action@v26
+      - uses: cachix/cachix-action@v14
+        with:
+          name: devenv
+      - name: Install devenv.sh
+        run: nix profile install nixpkgs#devenv
+      - name: Build
+        shell: devenv shell bash -- -e {0}
+        run: |
+          npx --yes --package=@napi-rs/cli@canary -- napi build --release --cross-compile --target ${{ matrix.arch }}${{ matrix.platform.target_suffix }}
+          mkdir -p dist
+          cp index.node ./dist/venbind-${{ matrix.platform.os }}-${{ matrix.arch }}.node
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: venbind-${{ matrix.platform.os }}-${{ matrix.arch }}
+          path: ./dist/venbind-${{ matrix.platform.os }}-${{ matrix.arch }}.node
