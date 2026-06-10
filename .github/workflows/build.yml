@@ -37,15 +37,22 @@ jobs:
         if: matrix.settings.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang libclang-dev pkg-config \
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev pkg-config \
             libx11-dev libxtst-dev libxt-dev libxinerama-dev libx11-xcb-dev \
-            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev libdbus-1-dev
+            libxkbcommon-dev libxkbcommon-x11-dev libxkbfile-dev libxcb1-dev libxcb-xkb-dev \
+            libdbus-1-dev libwayland-dev
       - name: Install build deps (Windows)
         if: matrix.settings.os == 'windows'
-        run: choco install -y cmake llvm
+        shell: bash
+        run: |
+          choco install -y cmake llvm
+          # bindgen/clang-sys needs LIBCLANG_PATH pointed at libclang.dll on
+          # Windows. On Linux it auto-detects the installed libclang-dev, and
+          # exporting an *empty* LIBCLANG_PATH there breaks that detection -- so
+          # set it only for Windows (was previously a Build-step ternary that
+          # left an empty value on Linux).
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
       - name: Build
-        env:
-          LIBCLANG_PATH: ${{ matrix.settings.os == 'windows' && 'C:\Program Files\LLVM\bin' || '' }}
         run: npx --yes @napi-rs/cli@2 build --release --target ${{ matrix.settings.target }}
       - name: Stage artifact
         shell: bash
