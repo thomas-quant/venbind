@@ -10,9 +10,14 @@ use uiohook_sys::{
 };
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyNameTextW, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_LCONTROL, VK_LMENU,
-    VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RETURN, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
-    VK_SPACE, VK_TAB,
+    GetKeyNameTextW, VIRTUAL_KEY, VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL,
+    VK_DELETE, VK_DIVIDE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14,
+    VK_F15, VK_F16, VK_F17, VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3,
+    VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT, VK_LMENU,
+    VK_LSHIFT, VK_LWIN, VK_MENU, VK_MULTIPLY, VK_NEXT, VK_NUMLOCK, VK_NUMPAD0, VK_NUMPAD1,
+    VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD5, VK_NUMPAD6, VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9,
+    VK_PAUSE, VK_PRIOR, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SCROLL,
+    VK_SHIFT, VK_SNAPSHOT, VK_SPACE, VK_SUBTRACT, VK_TAB, VK_UP,
 };
 
 use crate::errors::{Result, VenbindError};
@@ -51,28 +56,42 @@ pub extern "C" fn dispatch_proc(event_ref: *mut _uiohook_event) {
     {
         let keycode = unsafe { event.data.keyboard.rawcode };
         let scancode = unsafe { event.data.keyboard.keycode };
-        let key: Option<String> = match VIRTUAL_KEY(keycode) {
+        let vk = VIRTUAL_KEY(keycode);
+        let key: Option<String> = match vk {
+            // Modifier keys are tracked via `event.mask`, never as a key token.
             VK_SHIFT | VK_MENU | VK_CONTROL | VK_LWIN | VK_RWIN | VK_LSHIFT | VK_RSHIFT
             | VK_RCONTROL | VK_LCONTROL | VK_LMENU | VK_RMENU => None,
-            VK_ESCAPE | VK_BACK | VK_TAB | VK_DELETE | VK_RETURN | VK_SPACE => {
-                Some(get_key_name(scancode))
-            }
             _ => {
-                const BUF_SIZE: usize = 8;
-                let mut key_buffer: Vec<uiohook_sys::platform::wchar_t> = vec![0; BUF_SIZE];
-                let str_count = unsafe {
-                    uiohook_sys::platform::keycode_to_unicode(
-                        keycode as u32,
-                        key_buffer.as_mut_ptr(),
-                        BUF_SIZE.try_into().unwrap(),
-                    )
-                };
-                key_buffer.truncate(str_count.try_into().unwrap());
-                let key = OsString::from_wide(&key_buffer);
-                if !key.is_empty() {
-                    Some(key.to_string_lossy().to_lowercase())
+                // Named / non-printable keys -> a canonical, locale-independent
+                // token (see `crate::structs::tokens`), checked *before* the
+                // unicode path so keys that also have an ascii form (space, enter,
+                // tab, backspace, escape, delete, numpad) still resolve to their
+                // stable token rather than a raw control char.
+                if let Some(token) = vk_to_token(vk) {
+                    Some(token.to_owned())
                 } else {
-                    Some(get_key_name(scancode))
+                    // Printable keys -> their lowercased unicode character.
+                    const BUF_SIZE: usize = 8;
+                    let mut key_buffer: Vec<uiohook_sys::platform::wchar_t> = vec![0; BUF_SIZE];
+                    let str_count = unsafe {
+                        uiohook_sys::platform::keycode_to_unicode(
+                            keycode as u32,
+                            key_buffer.as_mut_ptr(),
+                            BUF_SIZE.try_into().unwrap(),
+                        )
+                    };
+                    key_buffer.truncate(str_count.try_into().unwrap());
+                    let key = OsString::from_wide(&key_buffer);
+                    if !key.is_empty() {
+                        Some(key.to_string_lossy().to_lowercase())
+                    } else {
+                        // Best-effort fallback for keys we don't map explicitly.
+                        // Lowercased so it at least matches a (lowercased)
+                        // registration on the same machine; `GetKeyNameTextW` is
+                        // OS-locale-dependent so it is NOT guaranteed to agree
+                        // across platforms (hence the explicit map above).
+                        Some(get_key_name(scancode).to_lowercase())
+                    }
                 }
             }
         };
@@ -144,4 +163,94 @@ fn get_key_name(scancode: u16) -> String {
     buf.truncate(str_count.try_into().unwrap());
     let key = OsString::from_wide(&buf);
     key.to_string_lossy().to_string()
+}
+
+/// Maps a Windows virtual-key code for a named / non-printable key to venbind's
+/// canonical, lowercase, locale-independent token (see `crate::structs::tokens`).
+/// Returns `None` for printable keys (letters, digits, OEM punctuation), which
+/// are matched by their unicode character instead. This is kept in lock-step with
+/// `linux.rs::keysym_to_token`, so a consumer can register one string (e.g.
+/// "ctrl+pageup", "f5") that matches identically on Windows and Linux/X11.
+fn vk_to_token(vk: VIRTUAL_KEY) -> Option<&'static str> {
+    use crate::structs::tokens::*;
+    Some(match vk {
+        VK_PRIOR => PAGE_UP,
+        VK_NEXT => PAGE_DOWN,
+        VK_HOME => HOME,
+        VK_END => END,
+        VK_INSERT => INSERT,
+        VK_DELETE => DELETE,
+        VK_ESCAPE => ESCAPE,
+        VK_RETURN => ENTER,
+        VK_BACK => BACKSPACE,
+        VK_TAB => TAB,
+        VK_SPACE => SPACE,
+        VK_UP => UP,
+        VK_DOWN => DOWN,
+        VK_LEFT => LEFT,
+        VK_RIGHT => RIGHT,
+        VK_CAPITAL => CAPS_LOCK,
+        VK_NUMLOCK => NUM_LOCK,
+        VK_SCROLL => SCROLL_LOCK,
+        VK_SNAPSHOT => PRINT_SCREEN,
+        VK_PAUSE => PAUSE,
+        VK_APPS => MENU,
+        VK_F1 => F1,
+        VK_F2 => F2,
+        VK_F3 => F3,
+        VK_F4 => F4,
+        VK_F5 => F5,
+        VK_F6 => F6,
+        VK_F7 => F7,
+        VK_F8 => F8,
+        VK_F9 => F9,
+        VK_F10 => F10,
+        VK_F11 => F11,
+        VK_F12 => F12,
+        VK_F13 => F13,
+        VK_F14 => F14,
+        VK_F15 => F15,
+        VK_F16 => F16,
+        VK_F17 => F17,
+        VK_F18 => F18,
+        VK_F19 => F19,
+        VK_F20 => F20,
+        VK_F21 => F21,
+        VK_F22 => F22,
+        VK_F23 => F23,
+        VK_F24 => F24,
+        VK_NUMPAD0 => NUMPAD0,
+        VK_NUMPAD1 => NUMPAD1,
+        VK_NUMPAD2 => NUMPAD2,
+        VK_NUMPAD3 => NUMPAD3,
+        VK_NUMPAD4 => NUMPAD4,
+        VK_NUMPAD5 => NUMPAD5,
+        VK_NUMPAD6 => NUMPAD6,
+        VK_NUMPAD7 => NUMPAD7,
+        VK_NUMPAD8 => NUMPAD8,
+        VK_NUMPAD9 => NUMPAD9,
+        VK_ADD => NUMPAD_ADD,
+        VK_SUBTRACT => NUMPAD_SUBTRACT,
+        VK_MULTIPLY => NUMPAD_MULTIPLY,
+        VK_DIVIDE => NUMPAD_DIVIDE,
+        VK_DECIMAL => NUMPAD_DECIMAL,
+        // Numpad Enter shares VK_RETURN on Windows, so it resolves to ENTER.
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::structs::tokens;
+
+    #[test]
+    fn named_keys_map_to_canonical_tokens() {
+        assert_eq!(vk_to_token(VK_PRIOR), Some(tokens::PAGE_UP));
+        assert_eq!(vk_to_token(VK_NEXT), Some(tokens::PAGE_DOWN));
+        assert_eq!(vk_to_token(VK_SPACE), Some(tokens::SPACE));
+        assert_eq!(vk_to_token(VK_RETURN), Some(tokens::ENTER));
+        assert_eq!(vk_to_token(VK_F5), Some(tokens::F5));
+        assert_eq!(vk_to_token(VK_NUMPAD7), Some(tokens::NUMPAD7));
+    }
 }

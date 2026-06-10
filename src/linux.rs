@@ -161,16 +161,7 @@ pub extern "C" fn uiohook_dispatch_proc(event_ref: *mut _uiohook_event) {
             // get the keysym from the keycode to always use a static keyboard layout
             let keysym = state.key_get_one_sym(keycode.into());
             let key = match keysym {
-                // Keys that do have an ascii representation but the keysym name is more fitting
-                Keysym::Escape
-                | Keysym::BackSpace
-                | Keysym::Return
-                | Keysym::Tab
-                | Keysym::Delete
-                | Keysym::space => {
-                    Some(format!("{:?}", keysym).trim_start_matches("XK_").to_owned())
-                }
-                // Keys that are already considered in the event.mask
+                // Modifier keys are tracked via `event.mask`, never as a key token.
                 Keysym::Shift_L
                 | Keysym::Shift_R
                 | Keysym::Control_L
@@ -179,13 +170,25 @@ pub extern "C" fn uiohook_dispatch_proc(event_ref: *mut _uiohook_event) {
                 | Keysym::Alt_R
                 | Keysym::Super_L
                 | Keysym::Super_R => None,
-                // Everything else
                 _ => {
-                    let key = state.key_get_utf8(keycode.into());
-                    if key.is_empty() {
-                        Some(format!("{:?}", keysym).trim_start_matches("XK_").to_owned())
+                    // Named / non-printable keys -> a canonical, locale-independent
+                    // token (see `crate::structs::tokens`), kept in lock-step with
+                    // `windows.rs::vk_to_token`. Checked before the utf8 path so
+                    // keys that also have an ascii form (space, enter, tab,
+                    // backspace, escape, delete, numpad) resolve to their stable
+                    // token rather than a raw control char.
+                    if let Some(token) = keysym_to_token(keysym) {
+                        Some(token.to_owned())
                     } else {
-                        Some(key)
+                        let key = state.key_get_utf8(keycode.into());
+                        if !key.is_empty() {
+                            // Lowercased to match `from_string` (which lowercases
+                            // every registration) and the Windows unicode path.
+                            Some(key.to_lowercase())
+                        } else {
+                            // Best-effort fallback (lowercased keysym name).
+                            Some(format!("{:?}", keysym).trim_start_matches("XK_").to_lowercase())
+                        }
                     }
                 }
             };
@@ -224,6 +227,96 @@ pub extern "C" fn uiohook_dispatch_proc(event_ref: *mut _uiohook_event) {
             curr_active_keybinds.clear();
             curr_active_keybinds.extend(active);
         });
+    }
+}
+
+/// Maps an X11 keysym for a named / non-printable key to venbind's canonical,
+/// lowercase, locale-independent token (see `crate::structs::tokens`). Returns
+/// `None` for printable keys (letters, digits, punctuation), which are matched by
+/// their unicode character instead. Kept in lock-step with
+/// `windows.rs::vk_to_token` so one registered string matches on both backends.
+fn keysym_to_token(keysym: Keysym) -> Option<&'static str> {
+    use crate::structs::tokens::*;
+    Some(match keysym {
+        Keysym::Page_Up => PAGE_UP,
+        Keysym::Page_Down => PAGE_DOWN,
+        Keysym::Home => HOME,
+        Keysym::End => END,
+        Keysym::Insert => INSERT,
+        Keysym::Delete => DELETE,
+        Keysym::Escape => ESCAPE,
+        Keysym::Return => ENTER,
+        Keysym::BackSpace => BACKSPACE,
+        Keysym::Tab => TAB,
+        Keysym::space => SPACE,
+        Keysym::Up => UP,
+        Keysym::Down => DOWN,
+        Keysym::Left => LEFT,
+        Keysym::Right => RIGHT,
+        Keysym::Caps_Lock => CAPS_LOCK,
+        Keysym::Num_Lock => NUM_LOCK,
+        Keysym::Scroll_Lock => SCROLL_LOCK,
+        Keysym::Print => PRINT_SCREEN,
+        Keysym::Pause => PAUSE,
+        Keysym::Menu => MENU,
+        Keysym::F1 => F1,
+        Keysym::F2 => F2,
+        Keysym::F3 => F3,
+        Keysym::F4 => F4,
+        Keysym::F5 => F5,
+        Keysym::F6 => F6,
+        Keysym::F7 => F7,
+        Keysym::F8 => F8,
+        Keysym::F9 => F9,
+        Keysym::F10 => F10,
+        Keysym::F11 => F11,
+        Keysym::F12 => F12,
+        Keysym::F13 => F13,
+        Keysym::F14 => F14,
+        Keysym::F15 => F15,
+        Keysym::F16 => F16,
+        Keysym::F17 => F17,
+        Keysym::F18 => F18,
+        Keysym::F19 => F19,
+        Keysym::F20 => F20,
+        Keysym::F21 => F21,
+        Keysym::F22 => F22,
+        Keysym::F23 => F23,
+        Keysym::F24 => F24,
+        Keysym::KP_0 => NUMPAD0,
+        Keysym::KP_1 => NUMPAD1,
+        Keysym::KP_2 => NUMPAD2,
+        Keysym::KP_3 => NUMPAD3,
+        Keysym::KP_4 => NUMPAD4,
+        Keysym::KP_5 => NUMPAD5,
+        Keysym::KP_6 => NUMPAD6,
+        Keysym::KP_7 => NUMPAD7,
+        Keysym::KP_8 => NUMPAD8,
+        Keysym::KP_9 => NUMPAD9,
+        Keysym::KP_Add => NUMPAD_ADD,
+        Keysym::KP_Subtract => NUMPAD_SUBTRACT,
+        Keysym::KP_Multiply => NUMPAD_MULTIPLY,
+        Keysym::KP_Divide => NUMPAD_DIVIDE,
+        Keysym::KP_Decimal => NUMPAD_DECIMAL,
+        Keysym::KP_Enter => NUMPAD_ENTER,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keysym_to_token;
+    use crate::structs::tokens;
+    use xkbcommon::xkb::Keysym;
+
+    #[test]
+    fn named_keys_map_to_canonical_tokens() {
+        assert_eq!(keysym_to_token(Keysym::Page_Up), Some(tokens::PAGE_UP));
+        assert_eq!(keysym_to_token(Keysym::Page_Down), Some(tokens::PAGE_DOWN));
+        assert_eq!(keysym_to_token(Keysym::space), Some(tokens::SPACE));
+        assert_eq!(keysym_to_token(Keysym::Return), Some(tokens::ENTER));
+        assert_eq!(keysym_to_token(Keysym::F5), Some(tokens::F5));
+        assert_eq!(keysym_to_token(Keysym::KP_7), Some(tokens::NUMPAD7));
     }
 }
 
