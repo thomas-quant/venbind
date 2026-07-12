@@ -225,7 +225,8 @@ fn resolve_pressed_key(vk: VIRTUAL_KEY, scancode: u16, keycode: u16) -> Option<S
             BUF_SIZE.try_into().unwrap(),
         )
     };
-    key_buffer.truncate(str_count.min(BUF_SIZE));
+    let str_count = usize::try_from(str_count).unwrap_or(BUF_SIZE).min(BUF_SIZE);
+    key_buffer.truncate(str_count);
     let key = OsString::from_wide(&key_buffer);
     (!key.is_empty()).then(|| key.to_string_lossy().to_lowercase())
 }
@@ -400,7 +401,7 @@ mod tests {
         }
     }
 
-    fn keyboard_event(type_: u32, vk: VIRTUAL_KEY, scancode: u16, mask: u16) -> _uiohook_event {
+    fn keyboard_event(type_: i32, vk: VIRTUAL_KEY, scancode: u16, mask: u16) -> _uiohook_event {
         let mut event: _uiohook_event = unsafe { std::mem::zeroed() };
         event.type_ = type_;
         event.mask = mask;
