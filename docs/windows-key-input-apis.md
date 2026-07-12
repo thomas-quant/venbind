@@ -339,7 +339,11 @@ versions since Windows 2000. This is the approach adopted in the fix.
   caches it through auto-repeat, and reuses that exact token on release instead of mutating the
   helper's dead-key state a second time.
 - **Extended-key distinction:** venbind uses libuiohook's normalized scancode alongside the VK code
-  to keep keypad tokens stable across NumLock state and distinguish Numpad Enter from Enter.
+  to keep keypad tokens stable across NumLock state and distinguish Numpad Enter from Enter. In the
+  vendored `keycode_to_scancode`, non-extended `VK_HOME` produces `VC_HOME` (NumLock-off Numpad 7),
+  while extended `VK_HOME` is ORed with `0xEE00` and equals `VC_KP_HOME` (dedicated Home). The
+  equivalent relationship holds for the other ambiguous navigation VKs. The `VC_KP_*` names are
+  therefore counterintuitive in this specific table; venbind follows the actual emitted values.
 - **Right-hand modifiers:** `VK_CONTROL` (0x11) and `VK_MENU` (0x12) are the generic (non-sided)
   codes. To distinguish left vs. right Ctrl/Alt, use `MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX)`
   which returns `VK_LCONTROL`/`VK_RCONTROL` and `VK_LMENU`/`VK_RMENU` [ABOUT, MVK].
@@ -349,8 +353,21 @@ versions since Windows 2000. This is the approach adopted in the fix.
 The static mapping includes navigation, editing and whitespace keys, arrows, F1–F24, locks, keypad
 keys, common system keys, volume and media transport, browser controls, and application launch keys.
 It intentionally excludes IME/process/packet keys, OEM-specific and reserved VK ranges, legacy
-terminal keys, gamepad VKs, mouse buttons, and sided modifier bindings. An excluded key is ignored
-when the active keyboard layout does not give it printable Unicode output.
+terminal keys, gamepad VKs, mouse buttons, and sided modifier bindings. Unicode lookup is attempted
+only for alphanumeric and common layout-dependent OEM punctuation VKs, so every excluded group is
+ignored rather than inheriting an incidental layout-table value.
+
+### Deterministic production-path coverage
+
+The hook callback and the Windows tests share `process_keyboard_event`, which owns modifier state,
+pressed-token caching, active-keybind transitions, and press/release output. Windows CI constructs
+real `_uiohook_event` keyboard unions and obtains their `keycode` fields by calling the vendored
+`keycode_to_scancode` C helper. The tests cover the complete supported named-key surface, modifiers,
+auto-repeat, press-time-token release, ambiguous keypad/navigation sources, and unsupported VKs.
+They never start `hook_run`, install a global hook, or wait for desktop input.
+
+After the N-API release build, both Windows and Linux CI load `index.node` in Node.js and assert that
+`defineErrorHandle`, `getCurrentShortcut`, `setKeybinds`, and `startKeybinds` are callable exports.
 
 ---
 

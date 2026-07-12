@@ -94,7 +94,7 @@ All constants are of type `VIRTUAL_KEY` and live in
 | Pause | `VK_PAUSE` | `0x13` | 19 | `pause` | |
 | Application / Menu | `VK_APPS` | `0x5D` | 93 | `menu` | Context-menu key, right of right Meta on full keyboards |
 | Cancel | `VK_CANCEL` | `0x03` | 3 | `cancel` | Control-Break processing |
-| Clear | `VK_CLEAR` | `0x0C` | 12 | `clear` | Also reported by Numpad 5 with NumLock off; scancode disambiguates it |
+| Clear | `VK_CLEAR` | `0x0C` | 12 | See note | Vendored libuiohook cannot distinguish it from Numpad 5 with NumLock off; production events use `numpad5` |
 | Select | `VK_SELECT` | `0x29` | 41 | `select` | |
 | Print | `VK_PRINT` | `0x2A` | 42 | `print` | Distinct from Print Screen |
 | Execute | `VK_EXECUTE` | `0x2B` | 43 | `execute` | |
@@ -230,7 +230,9 @@ the same VK codes as the corresponding navigation and arrow keys:
 
 venbind uses the normalized libuiohook scancode to retain physical keypad identity. With NumLock
 off, pressing numpad-9 still produces `numpad9`, while the dedicated navigation key produces
-`pageup`.
+`pageup`. This behavior is verified through synthetic `_uiohook_event` values created with the
+vendored `keycode_to_scancode` implementation and passed through the same state/event processor as
+the production hook callback.
 The operator keys (`VK_ADD`, `VK_SUBTRACT`, `VK_MULTIPLY`, `VK_DIVIDE`, `VK_DECIMAL`) are
 **not** affected by NumLock state — they always produce their own VK codes.
 
@@ -249,11 +251,36 @@ extended-key flag (`LLKHF_EXTENDED`, bit 0 of `KBDLLHOOKSTRUCT.flags`, equivalen
 libuiohook normalizes this distinction into `event.data.keyboard.keycode`; venbind consumes that
 field for Numpad Enter and NumLock-off keypad navigation.
 
+#### Vendored libuiohook encoding (important naming caveat)
+
+The vendored `keycode_to_scancode(vk_code, flags)` does not copy the hardware scan code from
+`KBDLLHOOKSTRUCT`. It starts with `keycode_scancode_table[vk_code][0]` and, for the ten ambiguous
+navigation VKs, ORs `0xEE00` into that value when `LLKHF_EXTENDED` is set. Consequently its constant
+names look reversed if they are read as physical-key labels:
+
+| Raw VK | `LLKHF_EXTENDED` | libuiohook `keycode` | Physical source | venbind token |
+|---|---:|---|---|---|
+| `VK_HOME` | 0 | `VC_HOME` (`0x0E47`) | Numpad 7, NumLock off | `numpad7` |
+| `VK_HOME` | 1 | `VC_KP_HOME` (`0xEE47`) | Dedicated Home | `home` |
+| `VK_RETURN` | 0 | `VC_ENTER` (`0x001C`) | Main Enter | `enter` |
+| `VK_RETURN` | 1 | `VC_KP_ENTER` (`0x0E1C`) | Numpad Enter | `numpadenter` |
+
+The same non-extended/extended relationship applies to Insert, Delete, End, Page Up, Page Down,
+and all four arrows. venbind intentionally matches the values the vendored function actually emits,
+not the apparent `VC_*`/`VC_KP_*` naming.
+
+`VK_CLEAR` is the exception: the vendored helper does not branch on `LLKHF_EXTENDED` and always
+returns `VC_CLEAR`. venbind therefore interprets production `VK_CLEAR` events as Numpad 5 with
+NumLock off (`numpad5`); the backend cannot reliably expose a separate physical `clear` binding from
+the information libuiohook supplies.
+
 ### Deliberately unsupported VK groups
 
 The mapping excludes IME/process/packet keys, OEM-specific and reserved ranges, legacy terminal
 keys (`VK_ATTN`, `VK_CRSEL`, and related values), gamepad VKs, mouse buttons, and sided modifier
-bindings. These values do not receive guessed or localized tokens.
+bindings. These values do not receive guessed or localized tokens. Unicode resolution is bounded to
+alphanumeric VKs and the common layout-dependent OEM punctuation VKs, so unsupported VK groups are
+ignored even if a layout table contains an incidental entry for them.
 
 ### `VK_SNAPSHOT` (Print Screen) and `WM_KEYDOWN`
 
