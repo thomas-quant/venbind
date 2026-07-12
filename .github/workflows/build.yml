@@ -1,0 +1,79 @@
+name: build
+
+# Fork build-only workflow (thomas-quant/venbind): compiles the crate natively on
+# each target's own runner and uploads the prebuilt .node that GoofCord consumes.
+# Deliberately does NOT use the upstream devenv/nix recipe (it has bit-rotted —
+# `devenv shell` bootstrap fails on current devenv). Standard napi-rs setup instead.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build - ${{ matrix.settings.os }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            os: linux
+          # Pin the VS 2022 image. `windows-latest` was redirected to the
+          # windows-2025-vs2026 preview image, which cmake-rs 0.1 cannot identify.
+          - host: windows-2022
+            target: x86_64-pc-windows-msvc
+            os: windows
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+          components: rustfmt
+      # uiohook-sys builds libuiohook via cmake and runs bindgen (needs libclang).
+      - name: Install build deps (Linux)
+        if: matrix.settings.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev pkg-config \
+            libx11-dev libxtst-dev libxt-dev libxinerama-dev libx11-xcb-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxkbfile-dev libxcb1-dev libxcb-xkb-dev \
+            libdbus-1-dev libwayland-dev
+      - name: Install build deps (Windows)
+        if: matrix.settings.os == 'windows'
+        shell: bash
+        run: |
+          choco install -y cmake llvm
+          # bindgen/clang-sys needs LIBCLANG_PATH pointed at libclang.dll on
+          # Windows. On Linux it auto-detects the installed libclang-dev, and
+          # exporting an *empty* LIBCLANG_PATH there breaks that detection -- so
+          # set it only for Windows (was previously a Build-step ternary that
+          # left an empty value on Linux).
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+      - name: Check formatting
+        # Upstream has unrelated pre-existing rustfmt drift in src/lib.rs.
+        run: rustfmt --edition 2021 --check src/windows.rs
+      - name: Test
+        # Upstream's existing lib tests are interactive hook demos. Filter this
+        # validation run to the focused non-interactive Windows regression tests.
+        run: cargo test --package venbind --all-features windows::tests
+      - name: Build
+        run: npx --yes @napi-rs/cli@2 build --release --target ${{ matrix.settings.target }}
+      - name: Smoke-load native addon
+        shell: bash
+        run: |
+          node -e "const addon = require('./index.node'); const expected = ['defineErrorHandle', 'getCurrentShortcut', 'setKeybinds', 'startKeybinds']; const missing = expected.filter((name) => typeof addon[name] !== 'function'); if (missing.length) { throw new Error('Missing native exports: ' + missing.join(', ')); } console.log('Native exports:', expected.join(', '));"
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp index.node "dist/venbind-${{ matrix.settings.os }}-x86_64.node"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: venbind-${{ matrix.settings.os }}-x86_64
+          path: dist/venbind-${{ matrix.settings.os }}-x86_64.node
