@@ -18,13 +18,15 @@ When a key event arrives the backend must convert one of those values into a sta
 can be matched against the user's keybind registration (e.g. `"pageup"`, `"ctrl"`, `"f5"`). Two
 translation paths exist in the code:
 
-1. **`GetKeyNameTextW(lParam, buf)`** — called for named / non-printable keys, where
-   `lParam = (scancode as i32) << 16`. *This path was the source of the bug described below.*
-2. **`keycode_to_unicode(virtual_key, buf, len)`** — libuiohook helper for printable keys; internally
-   wraps `ToUnicode` / `ToUnicodeEx` combined with `MapVirtualKey`.
+1. **Static VK-to-token mapping** — used for named / non-printable keys. The event `rawcode` is a
+   Windows virtual-key code, and `keycode` carries libuiohook's normalized scancode for ambiguous
+   cases such as Numpad Enter and NumLock-off keypad navigation.
+2. **`keycode_to_unicode(virtual_key, buf, len)`** — used only for printable keys. This libuiohook
+   helper walks the active layout DLL's `VK_TO_WCHARS` tables and maintains its own dead-key state;
+   it does not call `ToUnicode` / `ToUnicodeEx`.
 
-Understanding why path 1 is wrong for token matching — and what the correct path looks like — requires
-a precise understanding of all three APIs and the underlying scan-code / virtual-key model.
+Understanding why the former `GetKeyNameTextW` path was wrong for token matching requires a precise
+understanding of the APIs and the underlying scan-code / virtual-key model.
 
 ---
 
@@ -325,24 +327,30 @@ versions since Windows 2000. This is the approach adopted in the fix.
 
 ## 7. Implications for venbind
 
-- **Scan-code path (`GetKeyNameTextW`):** must be replaced by a VK-code-to-token table for all
-  non-printable keys. The `rawcode` field from libuiohook carries the VK code and is the correct
-  input to that table.
+- **Named-key path:** uses a VK-code-to-token table for supported non-printable keys. The `rawcode`
+  field carries the VK code; the normalized libuiohook scancode distinguishes keypad and extended
+  variants where Windows reuses a VK code.
 - **Printable key path (libuiohook's `keycode_to_unicode`):** produces the correct Unicode
   character for the physical key under the current layout, which is the right behavior for
   character-key matching. Note this helper does **not** call `ToUnicode`/`ToUnicodeEx` — it reads the
   layout DLL's `VK_TO_WCHARS` tables directly and keeps its own `static deadChar`. The `ToUnicode`
   `wFlags` bit-2 (no-state-mutation) flag therefore does **not** apply here; it would only matter if
-  venbind called `ToUnicode` itself. Avoiding dead-key/IME corruption on this path instead requires
-  not making redundant `keycode_to_unicode` calls (it mutates that shared `deadChar`), which is a
-  larger refactor tracked separately.
-- **Extended-key distinction:** if venbind needs to distinguish gray-cluster Insert/Home/End/PageUp/
-  PageDown/arrows from their NumLock-off numpad counterparts, it must check bit 24 of the libuiohook
-  event's `lParam`-equivalent (or the `KF_EXTENDED` flag) in addition to the VK code. For
-  most keybind use cases these are treated as the same key, which is the safer default.
+  venbind called `ToUnicode` itself. venbind resolves a printable token only on the first press,
+  caches it through auto-repeat, and reuses that exact token on release instead of mutating the
+  helper's dead-key state a second time.
+- **Extended-key distinction:** venbind uses libuiohook's normalized scancode alongside the VK code
+  to keep keypad tokens stable across NumLock state and distinguish Numpad Enter from Enter.
 - **Right-hand modifiers:** `VK_CONTROL` (0x11) and `VK_MENU` (0x12) are the generic (non-sided)
   codes. To distinguish left vs. right Ctrl/Alt, use `MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX)`
   which returns `VK_LCONTROL`/`VK_RCONTROL` and `VK_LMENU`/`VK_RMENU` [ABOUT, MVK].
+
+### Supported boundary
+
+The static mapping includes navigation, editing and whitespace keys, arrows, F1–F24, locks, keypad
+keys, common system keys, volume and media transport, browser controls, and application launch keys.
+It intentionally excludes IME/process/packet keys, OEM-specific and reserved VK ranges, legacy
+terminal keys, gamepad VKs, mouse buttons, and sided modifier bindings. An excluded key is ignored
+when the active keyboard layout does not give it printable Unicode output.
 
 ---
 

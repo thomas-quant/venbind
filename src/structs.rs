@@ -53,6 +53,13 @@ pub(crate) mod tokens {
     pub const PRINT_SCREEN: &str = "printscreen";
     pub const PAUSE: &str = "pause";
     pub const MENU: &str = "menu";
+    pub const CANCEL: &str = "cancel";
+    pub const CLEAR: &str = "clear";
+    pub const SELECT: &str = "select";
+    pub const PRINT: &str = "print";
+    pub const EXECUTE: &str = "execute";
+    pub const HELP: &str = "help";
+    pub const SLEEP: &str = "sleep";
     pub const F1: &str = "f1";
     pub const F2: &str = "f2";
     pub const F3: &str = "f3";
@@ -93,15 +100,115 @@ pub(crate) mod tokens {
     pub const NUMPAD_DIVIDE: &str = "numpaddivide";
     pub const NUMPAD_DECIMAL: &str = "numpaddecimal";
     pub const NUMPAD_ENTER: &str = "numpadenter";
+    pub const NUMPAD_SEPARATOR: &str = "numpadseparator";
+    pub const VOLUME_MUTE: &str = "volumemute";
+    pub const VOLUME_DOWN: &str = "volumedown";
+    pub const VOLUME_UP: &str = "volumeup";
+    pub const MEDIA_NEXT_TRACK: &str = "medianexttrack";
+    pub const MEDIA_PREV_TRACK: &str = "mediaprevtrack";
+    pub const MEDIA_STOP: &str = "mediastop";
+    pub const MEDIA_PLAY_PAUSE: &str = "mediaplaypause";
+    pub const BROWSER_BACK: &str = "browserback";
+    pub const BROWSER_FORWARD: &str = "browserforward";
+    pub const BROWSER_REFRESH: &str = "browserrefresh";
+    pub const BROWSER_STOP: &str = "browserstop";
+    pub const BROWSER_SEARCH: &str = "browsersearch";
+    pub const BROWSER_FAVORITES: &str = "browserfavorites";
+    pub const BROWSER_HOME: &str = "browserhome";
+    pub const LAUNCH_MAIL: &str = "launchmail";
+    pub const LAUNCH_MEDIA: &str = "launchmedia";
+    pub const LAUNCH_APP1: &str = "launchapp1";
+    pub const LAUNCH_APP2: &str = "launchapp2";
 
     #[cfg(test)]
     pub(crate) const ALL: &[&str] = &[
-        PAGE_UP, PAGE_DOWN, HOME, END, INSERT, DELETE, ESCAPE, ENTER, BACKSPACE, TAB, SPACE, UP,
-        DOWN, LEFT, RIGHT, CAPS_LOCK, NUM_LOCK, SCROLL_LOCK, PRINT_SCREEN, PAUSE, MENU, F1, F2, F3,
-        F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22,
-        F23, F24, NUMPAD0, NUMPAD1, NUMPAD2, NUMPAD3, NUMPAD4, NUMPAD5, NUMPAD6, NUMPAD7, NUMPAD8,
-        NUMPAD9, NUMPAD_ADD, NUMPAD_SUBTRACT, NUMPAD_MULTIPLY, NUMPAD_DIVIDE, NUMPAD_DECIMAL,
+        PAGE_UP,
+        PAGE_DOWN,
+        HOME,
+        END,
+        INSERT,
+        DELETE,
+        ESCAPE,
+        ENTER,
+        BACKSPACE,
+        TAB,
+        SPACE,
+        UP,
+        DOWN,
+        LEFT,
+        RIGHT,
+        CAPS_LOCK,
+        NUM_LOCK,
+        SCROLL_LOCK,
+        PRINT_SCREEN,
+        PAUSE,
+        MENU,
+        CANCEL,
+        CLEAR,
+        SELECT,
+        PRINT,
+        EXECUTE,
+        HELP,
+        SLEEP,
+        F1,
+        F2,
+        F3,
+        F4,
+        F5,
+        F6,
+        F7,
+        F8,
+        F9,
+        F10,
+        F11,
+        F12,
+        F13,
+        F14,
+        F15,
+        F16,
+        F17,
+        F18,
+        F19,
+        F20,
+        F21,
+        F22,
+        F23,
+        F24,
+        NUMPAD0,
+        NUMPAD1,
+        NUMPAD2,
+        NUMPAD3,
+        NUMPAD4,
+        NUMPAD5,
+        NUMPAD6,
+        NUMPAD7,
+        NUMPAD8,
+        NUMPAD9,
+        NUMPAD_ADD,
+        NUMPAD_SUBTRACT,
+        NUMPAD_MULTIPLY,
+        NUMPAD_DIVIDE,
+        NUMPAD_DECIMAL,
         NUMPAD_ENTER,
+        NUMPAD_SEPARATOR,
+        VOLUME_MUTE,
+        VOLUME_DOWN,
+        VOLUME_UP,
+        MEDIA_NEXT_TRACK,
+        MEDIA_PREV_TRACK,
+        MEDIA_STOP,
+        MEDIA_PLAY_PAUSE,
+        BROWSER_BACK,
+        BROWSER_FORWARD,
+        BROWSER_REFRESH,
+        BROWSER_STOP,
+        BROWSER_SEARCH,
+        BROWSER_FAVORITES,
+        BROWSER_HOME,
+        LAUNCH_MAIL,
+        LAUNCH_MEDIA,
+        LAUNCH_APP1,
+        LAUNCH_APP2,
     ];
 }
 

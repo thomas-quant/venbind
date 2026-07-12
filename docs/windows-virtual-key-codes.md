@@ -93,6 +93,36 @@ All constants are of type `VIRTUAL_KEY` and live in
 | Print Screen | `VK_SNAPSHOT` | `0x2C` | 44 | `printscreen` | May not generate a WM_KEYDOWN in some Windows configurations |
 | Pause | `VK_PAUSE` | `0x13` | 19 | `pause` | |
 | Application / Menu | `VK_APPS` | `0x5D` | 93 | `menu` | Context-menu key, right of right Meta on full keyboards |
+| Cancel | `VK_CANCEL` | `0x03` | 3 | `cancel` | Control-Break processing |
+| Clear | `VK_CLEAR` | `0x0C` | 12 | `clear` | Also reported by Numpad 5 with NumLock off; scancode disambiguates it |
+| Select | `VK_SELECT` | `0x29` | 41 | `select` | |
+| Print | `VK_PRINT` | `0x2A` | 42 | `print` | Distinct from Print Screen |
+| Execute | `VK_EXECUTE` | `0x2B` | 43 | `execute` | |
+| Help | `VK_HELP` | `0x2F` | 47 | `help` | |
+| Sleep | `VK_SLEEP` | `0x5F` | 95 | `sleep` | |
+
+### Volume, Media, Browser, and Launch Keys
+
+| Key | `windows`-crate constant | Hex value | DOM `keyCode` | Canonical token |
+|-----|--------------------------|-----------|---------------|-----------------|
+| Volume Mute | `VK_VOLUME_MUTE` | `0xAD` | 173 | `volumemute` |
+| Volume Down | `VK_VOLUME_DOWN` | `0xAE` | 174 | `volumedown` |
+| Volume Up | `VK_VOLUME_UP` | `0xAF` | 175 | `volumeup` |
+| Next Track | `VK_MEDIA_NEXT_TRACK` | `0xB0` | 176 | `medianexttrack` |
+| Previous Track | `VK_MEDIA_PREV_TRACK` | `0xB1` | 177 | `mediaprevtrack` |
+| Stop Media | `VK_MEDIA_STOP` | `0xB2` | 178 | `mediastop` |
+| Play/Pause Media | `VK_MEDIA_PLAY_PAUSE` | `0xB3` | 179 | `mediaplaypause` |
+| Browser Back | `VK_BROWSER_BACK` | `0xA6` | 166 | `browserback` |
+| Browser Forward | `VK_BROWSER_FORWARD` | `0xA7` | 167 | `browserforward` |
+| Browser Refresh | `VK_BROWSER_REFRESH` | `0xA8` | 168 | `browserrefresh` |
+| Browser Stop | `VK_BROWSER_STOP` | `0xA9` | 169 | `browserstop` |
+| Browser Search | `VK_BROWSER_SEARCH` | `0xAA` | 170 | `browsersearch` |
+| Browser Favorites | `VK_BROWSER_FAVORITES` | `0xAB` | 171 | `browserfavorites` |
+| Browser Home | `VK_BROWSER_HOME` | `0xAC` | 172 | `browserhome` |
+| Launch Mail | `VK_LAUNCH_MAIL` | `0xB4` | 180 | `launchmail` |
+| Launch Media | `VK_LAUNCH_MEDIA_SELECT` | `0xB5` | 181 | `launchmedia` |
+| Launch Application 1 | `VK_LAUNCH_APP1` | `0xB6` | 182 | `launchapp1` |
+| Launch Application 2 | `VK_LAUNCH_APP2` | `0xB7` | 183 | `launchapp2` |
 
 ### Numpad Keys
 
@@ -113,6 +143,7 @@ All constants are of type `VIRTUAL_KEY` and live in
 | Numpad \* | `VK_MULTIPLY` | `0x6A` | 106 | `numpadmultiply` | |
 | Numpad / | `VK_DIVIDE` | `0x6F` | 111 | `numpaddivide` | |
 | Numpad . | `VK_DECIMAL` | `0x6E` | 110 | `numpaddecimal` | |
+| Numpad Separator | `VK_SEPARATOR` | `0x6C` | 108 | `numpadseparator` | Layout/hardware dependent |
 
 ### Modifier Keys (no canonical token; handled via event mask)
 
@@ -175,9 +206,9 @@ the Win32 level even though DOM `keyCode` does not expose them.
 There is **no separate virtual-key for the numpad Enter key**. Both main-keyboard Enter and
 numpad Enter produce `VK_RETURN` (`0x0D`). The two can be distinguished only by the
 extended-key bit (bit 24) of the `KBDLLHOOKSTRUCT.flags` field, or equivalently by the
-`KF_EXTENDED` flag in the `lParam` of `WM_KEYDOWN`. venbind routes both through `uiohook` and
-maps both to the token `enter`. If you need to distinguish them, inspect
-`uiohook_event.data.keyboard.keycode` (the scan code) alongside the rawcode.
+`KF_EXTENDED` flag in the `lParam` of `WM_KEYDOWN`. venbind uses
+`uiohook_event.data.keyboard.keycode` alongside the rawcode: `VC_ENTER` maps to `enter` and
+`VC_KP_ENTER` maps to `numpadenter`.
 
 ### NumLock OFF — numpad keys emit navigation VKs
 
@@ -197,7 +228,9 @@ the same VK codes as the corresponding navigation and arrow keys:
 | Numpad 8 | `VK_NUMPAD8` (0x68) | `VK_UP` (0x26) |
 | Numpad 9 | `VK_NUMPAD9` (0x69) | `VK_PRIOR` (0x21) |
 
-Consequence: with NumLock off, pressing numpad-9 produces the token `pageup` (not `numpad9`).
+venbind uses the normalized libuiohook scancode to retain physical keypad identity. With NumLock
+off, pressing numpad-9 still produces `numpad9`, while the dedicated navigation key produces
+`pageup`.
 The operator keys (`VK_ADD`, `VK_SUBTRACT`, `VK_MULTIPLY`, `VK_DIVIDE`, `VK_DECIMAL`) are
 **not** affected by NumLock state — they always produce their own VK codes.
 
@@ -213,8 +246,14 @@ extended-key flag (`LLKHF_EXTENDED`, bit 0 of `KBDLLHOOKSTRUCT.flags`, equivalen
 - Arrow keys, Home, End, Page Up, Page Down, Insert, Delete on the **dedicated** navigation
   cluster (not the numpad equivalents when NumLock is off)
 
-venbind's uiohook layer normalises most of this, but the Numpad-Enter / main-Enter distinction
-falls through because uiohook exposes only the raw VK code, not the flag.
+libuiohook normalizes this distinction into `event.data.keyboard.keycode`; venbind consumes that
+field for Numpad Enter and NumLock-off keypad navigation.
+
+### Deliberately unsupported VK groups
+
+The mapping excludes IME/process/packet keys, OEM-specific and reserved ranges, legacy terminal
+keys (`VK_ATTN`, `VK_CRSEL`, and related values), gamepad VKs, mouse buttons, and sided modifier
+bindings. These values do not receive guessed or localized tokens.
 
 ### `VK_SNAPSHOT` (Print Screen) and `WM_KEYDOWN`
 

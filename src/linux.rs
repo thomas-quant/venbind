@@ -187,7 +187,11 @@ pub extern "C" fn uiohook_dispatch_proc(event_ref: *mut _uiohook_event) {
                             Some(key.to_lowercase())
                         } else {
                             // Best-effort fallback (lowercased keysym name).
-                            Some(format!("{:?}", keysym).trim_start_matches("XK_").to_lowercase())
+                            Some(
+                                format!("{:?}", keysym)
+                                    .trim_start_matches("XK_")
+                                    .to_lowercase(),
+                            )
                         }
                     }
                 }
@@ -259,6 +263,11 @@ fn keysym_to_token(keysym: Keysym) -> Option<&'static str> {
         Keysym::Print => PRINT_SCREEN,
         Keysym::Pause => PAUSE,
         Keysym::Menu => MENU,
+        Keysym::Cancel => CANCEL,
+        Keysym::Clear => CLEAR,
+        Keysym::Select => SELECT,
+        Keysym::Execute => EXECUTE,
+        Keysym::Help => HELP,
         Keysym::F1 => F1,
         Keysym::F2 => F2,
         Keysym::F3 => F3,
@@ -299,6 +308,26 @@ fn keysym_to_token(keysym: Keysym) -> Option<&'static str> {
         Keysym::KP_Divide => NUMPAD_DIVIDE,
         Keysym::KP_Decimal => NUMPAD_DECIMAL,
         Keysym::KP_Enter => NUMPAD_ENTER,
+        Keysym::KP_Separator => NUMPAD_SEPARATOR,
+        Keysym::XF86_AudioMute => VOLUME_MUTE,
+        Keysym::XF86_AudioLowerVolume => VOLUME_DOWN,
+        Keysym::XF86_AudioRaiseVolume => VOLUME_UP,
+        Keysym::XF86_AudioNext => MEDIA_NEXT_TRACK,
+        Keysym::XF86_AudioPrev => MEDIA_PREV_TRACK,
+        Keysym::XF86_AudioStop => MEDIA_STOP,
+        Keysym::XF86_AudioPlay | Keysym::XF86_AudioPause => MEDIA_PLAY_PAUSE,
+        Keysym::XF86_Back => BROWSER_BACK,
+        Keysym::XF86_Forward => BROWSER_FORWARD,
+        Keysym::XF86_Refresh => BROWSER_REFRESH,
+        Keysym::XF86_Stop => BROWSER_STOP,
+        Keysym::XF86_Search => BROWSER_SEARCH,
+        Keysym::XF86_Favorites => BROWSER_FAVORITES,
+        Keysym::XF86_HomePage => BROWSER_HOME,
+        Keysym::XF86_Mail => LAUNCH_MAIL,
+        Keysym::XF86_AudioMedia => LAUNCH_MEDIA,
+        Keysym::XF86_Launch0 => LAUNCH_APP1,
+        Keysym::XF86_Launch1 => LAUNCH_APP2,
+        Keysym::XF86_Sleep => SLEEP,
         _ => return None,
     })
 }
@@ -317,6 +346,34 @@ mod tests {
         assert_eq!(keysym_to_token(Keysym::Return), Some(tokens::ENTER));
         assert_eq!(keysym_to_token(Keysym::F5), Some(tokens::F5));
         assert_eq!(keysym_to_token(Keysym::KP_7), Some(tokens::NUMPAD7));
+    }
+
+    #[test]
+    fn extended_keys_map_to_windows_compatible_tokens() {
+        let cases = [
+            (Keysym::XF86_AudioMute, tokens::VOLUME_MUTE),
+            (Keysym::XF86_AudioLowerVolume, tokens::VOLUME_DOWN),
+            (Keysym::XF86_AudioRaiseVolume, tokens::VOLUME_UP),
+            (Keysym::XF86_AudioNext, tokens::MEDIA_NEXT_TRACK),
+            (Keysym::XF86_AudioPrev, tokens::MEDIA_PREV_TRACK),
+            (Keysym::XF86_AudioStop, tokens::MEDIA_STOP),
+            (Keysym::XF86_AudioPlay, tokens::MEDIA_PLAY_PAUSE),
+            (Keysym::XF86_Back, tokens::BROWSER_BACK),
+            (Keysym::XF86_Forward, tokens::BROWSER_FORWARD),
+            (Keysym::XF86_Refresh, tokens::BROWSER_REFRESH),
+            (Keysym::XF86_Stop, tokens::BROWSER_STOP),
+            (Keysym::XF86_Search, tokens::BROWSER_SEARCH),
+            (Keysym::XF86_Favorites, tokens::BROWSER_FAVORITES),
+            (Keysym::XF86_HomePage, tokens::BROWSER_HOME),
+            (Keysym::XF86_Mail, tokens::LAUNCH_MAIL),
+            (Keysym::XF86_AudioMedia, tokens::LAUNCH_MEDIA),
+            (Keysym::XF86_Launch0, tokens::LAUNCH_APP1),
+            (Keysym::XF86_Launch1, tokens::LAUNCH_APP2),
+            (Keysym::XF86_Sleep, tokens::SLEEP),
+        ];
+        for (keysym, token) in cases {
+            assert_eq!(keysym_to_token(keysym), Some(token), "{keysym:?}");
+        }
     }
 }
 

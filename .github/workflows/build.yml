@@ -19,7 +19,9 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             os: linux
-          - host: windows-latest
+          # Pin the VS 2022 image. `windows-latest` was redirected to the
+          # windows-2025-vs2026 preview image, which cmake-rs 0.1 cannot identify.
+          - host: windows-2022
             target: x86_64-pc-windows-msvc
             os: windows
     steps:
@@ -32,6 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.settings.target }}
+          components: rustfmt
       # uiohook-sys builds libuiohook via cmake and runs bindgen (needs libclang).
       - name: Install build deps (Linux)
         if: matrix.settings.os == 'linux'
@@ -52,6 +55,10 @@ jobs:
           # set it only for Windows (was previously a Build-step ternary that
           # left an empty value on Linux).
           echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> "$GITHUB_ENV"
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test
+        run: cargo test --workspace --all-features
       - name: Build
         run: npx --yes @napi-rs/cli@2 build --release --target ${{ matrix.settings.target }}
       - name: Stage artifact
