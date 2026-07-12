@@ -338,6 +338,8 @@ versions since Windows 2000. This is the approach adopted in the fix.
   venbind called `ToUnicode` itself. venbind resolves a printable token only on the first press,
   caches it through auto-repeat, and reuses that exact token on release instead of mutating the
   helper's dead-key state a second time.
+  Printable `+` uses the normal shortcut separator syntax as `"+"` by itself or a doubled trailing
+  separator with modifiers (for example, `"ctrl++"`).
 - **Extended-key distinction:** venbind uses libuiohook's normalized scancode alongside the VK code
   to keep keypad tokens stable across NumLock state and distinguish Numpad Enter from Enter. In the
   vendored `keycode_to_scancode`, non-extended `VK_HOME` produces `VC_HOME` (NumLock-off Numpad 7),
